@@ -94,7 +94,7 @@ function createBot(token, database) {
     clearAssessment(ctx.from.id);
     adminSelections.set(ctx.from.id, section);
     await ctx.answerCbQuery();
-    return ctx.reply(section.title + '\n\nVideoni Telegram’da video sifatida yuboring. Bekor qilish uchun /cancel ni bosing.');
+    return ctx.reply(section.title + '\n\nVideoni galereyadan yoki MP4 fayl sifatida yuboring. Bekor qilish uchun /cancel ni bosing.');
   });
 
   bot.command('cancel', (ctx) => {
@@ -103,24 +103,29 @@ function createBot(token, database) {
     return menu(ctx);
   });
 
-  bot.on('video', async (ctx) => {
+  async function saveSectionVideo(ctx, fileId, type) {
     if (!isAdmin(ctx)) return;
     const section = adminSelections.get(ctx.from.id);
     if (!section) return ctx.reply('Avval /admin orqali bo‘limni tanlang.');
     adminSelections.delete(ctx.from.id);
     try {
-      await database.saveTelegramVideo(sectionVideoKey(ctx, section.id), 'admin', ctx.message.video.file_id);
+      await database.saveTelegramVideo(sectionVideoKey(ctx, section.id), type, fileId);
     } catch (error) {
       if (!adminSelections.has(ctx.from.id)) adminSelections.set(ctx.from.id, section);
       throw error;
     }
-    return ctx.reply(section.title + '\n\n✅ Video saqlandi. Bo‘limning oxirgi sahifasidan uni ochish mumkin.');
-  });
+    return ctx.reply(section.title + '\n\n✅ Video saqlandi. Uni bo‘limning istalgan sahifasidan ochish mumkin.',
+      Markup.inlineKeyboard([[button('🎬 Videoni ko‘rish', section.id + '-video')]]));
+  }
 
+  bot.on('video', (ctx) => saveSectionVideo(ctx, ctx.message.video.file_id, 'admin'));
   bot.on('document', (ctx) => {
-    if (isAdmin(ctx) && adminSelections.has(ctx.from.id)) {
-      return ctx.reply('Videoni galereyadan video sifatida yuboring. Tanlangan bo‘lim tayyor.');
+    if (!isAdmin(ctx) || !adminSelections.has(ctx.from.id)) return;
+    const { file_id, mime_type, file_name } = ctx.message.document;
+    if (mime_type !== 'video/mp4' && !/\.mp4$/i.test(file_name || '')) {
+      return ctx.reply('Videoni galereyadan yoki MP4 fayl sifatida yuboring.');
     }
+    return saveSectionVideo(ctx, file_id, 'admin-document');
   });
 
   bot.action('menu', async (ctx) => {
@@ -143,10 +148,11 @@ function createBot(token, database) {
     if (assigned) {
       await ctx.answerCbQuery();
       try {
-        return await ctx.replyWithVideo(assigned.file_id, {
-          caption: sections.find(({ id }) => id === sectionId).title,
-          supports_streaming: true,
-        });
+        const caption = sections.find(({ id }) => id === sectionId).title;
+        if (assigned.file_version === 'admin-document') {
+          return await ctx.replyWithDocument(assigned.file_id, { caption });
+        }
+        return await ctx.replyWithVideo(assigned.file_id, { caption, supports_streaming: true });
       } catch (error) {
         if (!isInvalidVideoId(error)) throw error;
         return ctx.reply('Video hozircha ochilmadi. Administratorga xabar bering.');
@@ -235,17 +241,15 @@ function createBot(token, database) {
     if (!lastPage) navigation.push(button('Keyingi ➡️', goTo(section, index + 1)));
 
     const rows = [];
-    if (section.id === 'fire') {
-      if (lastPage) rows.push([button('🎬 Qisqa video', 'fire-video')]);
-      rows.push([button('🚨 Yong‘in raqamlari · 101 / 112', 'emergency')]);
+    const assigned = await database.telegramVideo(sectionVideoKey(ctx, section.id));
+    if (assigned) {
+      rows.push([button('🎬 Bo‘lim videosi', section.id + '-video')]);
+    } else if (lastPage && section.id === 'fire') {
+      rows.push([button('🎬 Qisqa video', 'fire-video')]);
+    } else if (lastPage && section.id === 'electrical') {
+      rows.push([button('🎬 Tok urgan odamga yordam', 'electrical-video')]);
     }
-    if (section.id === 'electrical' && lastPage) {
-      const assigned = await database.telegramVideo(sectionVideoKey(ctx, section.id));
-      rows.push([button(assigned ? '🎬 Bo‘lim videosi' : '🎬 Tok urgan odamga yordam', 'electrical-video')]);
-    }
-    if (section.id === 'first-aid' && lastPage && await database.telegramVideo(sectionVideoKey(ctx, section.id))) {
-      rows.push([button('🎬 Bo‘lim videosi', 'first-aid-video')]);
-    }
+    if (section.id === 'fire') rows.push([button('🚨 Yong‘in raqamlari · 101 / 112', 'emergency')]);
     if (navigation.length) rows.push(navigation);
     if (lastPage) {
       rows.push([button('✅ O‘qib bo‘ldim', 'complete:' + section.id)]);
