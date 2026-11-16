@@ -1,0 +1,18 @@
+{
+  "name": "hayot-faoliyati-xavfsizligi-bot",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Ish joyida hayot faoliyati xavfsizligi bo‘yicha Telegram yo‘riqnoma boti",
+  "scripts": {
+    "start": "node --env-file-if-exists=.env src/index.js",
+    "dev": "node --watch --env-file-if-exists=.env src/index.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "express": "^5.3.0",
+    "sqlite3": "^6.0.1",
+    "telegraf": "^4.16.3"
+  }
+}
